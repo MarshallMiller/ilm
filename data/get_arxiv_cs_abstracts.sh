@@ -1,3 +1,5 @@
+set -e
+
 DATA_DIR=raw_data/arxiv_cs_abstracts
 rm -rf ${DATA_DIR}
 mkdir -p ${DATA_DIR}
