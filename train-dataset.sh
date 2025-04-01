@@ -1,10 +1,11 @@
 #!/bin/sh
+set -e
 
 usage() {
   echo "usage: $0 DATASET"
 }
 
-if [ $# -ne 2 ]; then
+if [ $# -ne 1 ]; then
   usage
   exit 1
 fi
