@@ -4,7 +4,7 @@ usage() {
   echo "usage: $0 DATASET"
 }
 
-if [ $# -ne 2 ]; then
+if [ $# -ne 1 ]; then
   usage
   echo "args $#"
   exit 1
