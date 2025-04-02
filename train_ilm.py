@@ -262,126 +262,136 @@ def tts_to_labels(inputs, tts, label_tts):
       inputs,
       torch.full_like(inputs, -1))
 
+class Trainer:
+  def __init__(self, args):
+    self.args = args
+    # Lambda for filenames
+    self.example_tag_to_fp = lambda tag: os.path.join(args.examples_dir, '{}.pkl'.format(tag))
+    self.out_fn_to_fp = lambda fn: os.path.join(args.train_dir, fn)
+  
+    # Create training dir
+    os.makedirs(args.train_dir, exist_ok=True)
+    resuming = os.path.exists(out_fn_to_fp('step.pkl'))
 
-def train(args):
-  # Init device
-  n_gpu = torch.cuda.device_count()
-  if n_gpu == 0:
-    warnings.warn('No GPU detected. Training on CPU will be very slow')
-  elif n_gpu > 1:
-    warnings.warn('This codebase is not optimized for multi GPU usage')
-  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Create tokenizer
+    tokenizer = ilm.tokenize_util.Tokenizer[args.tokenizer_name.upper()]
+    if tokenizer == ilm.tokenize_util.Tokenizer.CUSTOM:
+      ilm.tokenize_util.set_custom_vocab_fp(args.tokenizer_custom_vocab_fp)
+  
+    # Update tokenizer
+    base_vocab_size = ilm.tokenize_util.vocab_size(tokenizer)
+    start_infill_id = base_vocab_size + 0
+    end_infill_id = base_vocab_size + 1
+    additional_ids_to_tokens = {
+        start_infill_id: '<|startofinfill|>',
+        end_infill_id: '<|endofinfill|>'
+    }
+    mask_cls = ilm.mask.util.mask_cls_str_to_type(args.mask_cls)
+    mask_types = mask_cls.mask_types()
+    mask_type_to_id = {}
+    for i, t in enumerate(mask_types):
+      t_id = base_vocab_size + 2 + i
+      t_tok = '<|infill_{}|>'.format(mask_cls.mask_type_serialize(t))
+      additional_ids_to_tokens[t_id] = t_tok
+      mask_type_to_id[t] = t_id
+    print(additional_ids_to_tokens)
+    vocab_size = ilm.tokenize_util.update_tokenizer(additional_ids_to_tokens, tokenizer)
+    with open(out_fn_to_fp('additional_ids_to_tokens.pkl'), 'wb') as f:
+      pickle.dump(additional_ids_to_tokens, f)
 
-  # Lambda for filenames
-  example_tag_to_fp = lambda tag: os.path.join(args.examples_dir, '{}.pkl'.format(tag))
-  out_fn_to_fp = lambda fn: os.path.join(args.train_dir, fn)
+  def init_device(self):
+    # Init device
+    n_gpu = torch.cuda.device_count()
+    if n_gpu == 0:
+      warnings.warn('No GPU detected. Training on CPU will be very slow')
+    elif n_gpu > 1:
+      warnings.warn('This codebase is not optimized for multi GPU usage')
+    self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-  # Create training dir
-  os.makedirs(args.train_dir, exist_ok=True)
-  resuming = os.path.exists(out_fn_to_fp('step.pkl'))
-
-  # Create tokenizer
-  tokenizer = ilm.tokenize_util.Tokenizer[args.tokenizer_name.upper()]
-  if tokenizer == ilm.tokenize_util.Tokenizer.CUSTOM:
-    ilm.tokenize_util.set_custom_vocab_fp(args.tokenizer_custom_vocab_fp)
-
-  # Update tokenizer
-  base_vocab_size = ilm.tokenize_util.vocab_size(tokenizer)
-  start_infill_id = base_vocab_size + 0
-  end_infill_id = base_vocab_size + 1
-  additional_ids_to_tokens = {
-      start_infill_id: '<|startofinfill|>',
-      end_infill_id: '<|endofinfill|>'
-  }
-  mask_cls = ilm.mask.util.mask_cls_str_to_type(args.mask_cls)
-  mask_types = mask_cls.mask_types()
-  mask_type_to_id = {}
-  for i, t in enumerate(mask_types):
-    t_id = base_vocab_size + 2 + i
-    t_tok = '<|infill_{}|>'.format(mask_cls.mask_type_serialize(t))
-    additional_ids_to_tokens[t_id] = t_tok
-    mask_type_to_id[t] = t_id
-  print(additional_ids_to_tokens)
-  vocab_size = ilm.tokenize_util.update_tokenizer(additional_ids_to_tokens, tokenizer)
-  with open(out_fn_to_fp('additional_ids_to_tokens.pkl'), 'wb') as f:
-    pickle.dump(additional_ids_to_tokens, f)
-
-  # Load training data
-  if not args.eval_only:
-    print('Loading training data')
+  def load_training_data(self):
+    # Load training data
+    if not self.args.eval_only:
+      print('Loading training data')
+      loaded_from_cache = False
+      if self.args.data_cache:
+        try:
+          train_inputs = np.load(self.out_fn_to_fp('train_inp.npy'))
+          train_tts = np.load(self.out_fn_to_fp('train_tts.npy'))
+          with open(self.out_fn_to_fp('train_num_docs.pkl'), 'rb') as f:
+            train_num_docs = pickle.load(f)
+          loaded_from_cache = True
+        except:
+          pass
+      if not loaded_from_cache:
+        train_inputs, train_tts, train_num_docs = masked_dataset_to_inputs_and_tts(
+            'train',
+            tokenizer,
+            start_infill_id,
+            end_infill_id,
+            mask_type_to_id,
+            args)
+        if self.args.data_cache:
+          np.save(self.out_fn_to_fp('train_inp.npy'), train_inputs)
+          np.save(self.out_fn_to_fp('train_tts.npy'), train_tts)
+          with open(self.out_fn_to_fp('train_num_docs.pkl'), 'wb') as f:
+            pickle.dump(train_num_docs, f)
+      train_tt_to_count = {TargetType(k):v for k, v in zip(*np.unique(train_tts, return_counts=True))}
+      print(train_tt_to_count)
+      num_unmasked = train_tt_to_count.get(TargetType.CONTEXT, 0)
+      num_masked = train_tt_to_count.get(TargetType.INFILL, 0)
+      print('Mask rate (tokens): {:.4f}'.format(num_masked / (num_unmasked + num_masked)))
+      print('{} documents, {} examples'.format(train_num_docs, train_inputs.shape[0]))
+      print(train_inputs.shape, train_inputs.dtype, train_tts.shape, train_tts.dtype)
+      train_data = TensorDataset(
+          torch.from_numpy(train_inputs.astype(np.int64)),
+          torch.from_numpy(train_tts))
+      del train_inputs
+      del train_tts
+  def load_eval_data(self):
+    # Load eval data
+    print('Loading eval data')
     loaded_from_cache = False
-    if args.data_cache:
+    if self.args.data_cache:
       try:
-        train_inputs = np.load(out_fn_to_fp('train_inp.npy'))
-        train_tts = np.load(out_fn_to_fp('train_tts.npy'))
-        with open(out_fn_to_fp('train_num_docs.pkl'), 'rb') as f:
-          train_num_docs = pickle.load(f)
+        eval_inputs = np.load(self.out_fn_to_fp('eval_inp.npy'))
+        eval_tts = np.load(self.out_fn_to_fp('eval_tts.npy'))
+        with open(self.out_fn_to_fp('eval_num_docs.pkl'), 'rb') as f:
+          eval_num_docs = pickle.load(f)
         loaded_from_cache = True
       except:
         pass
     if not loaded_from_cache:
-      train_inputs, train_tts, train_num_docs = masked_dataset_to_inputs_and_tts(
-          'train',
+      eval_inputs, eval_tts, eval_num_docs = masked_dataset_to_inputs_and_tts(
+          'eval',
           tokenizer,
           start_infill_id,
           end_infill_id,
           mask_type_to_id,
           args)
-      if args.data_cache:
-        np.save(out_fn_to_fp('train_inp.npy'), train_inputs)
-        np.save(out_fn_to_fp('train_tts.npy'), train_tts)
-        with open(out_fn_to_fp('train_num_docs.pkl'), 'wb') as f:
-          pickle.dump(train_num_docs, f)
-    train_tt_to_count = {TargetType(k):v for k, v in zip(*np.unique(train_tts, return_counts=True))}
-    print(train_tt_to_count)
-    num_unmasked = train_tt_to_count.get(TargetType.CONTEXT, 0)
-    num_masked = train_tt_to_count.get(TargetType.INFILL, 0)
+      if self.args.data_cache:
+        np.save(self.out_fn_to_fp('eval_inp.npy'), eval_inputs)
+        np.save(self.out_fn_to_fp('eval_tts.npy'), eval_tts)
+        with open(self.out_fn_to_fp('eval_num_docs.pkl'), 'wb') as f:
+          pickle.dump(eval_num_docs, f)
+    eval_tt_to_count = {TargetType(k):v for k, v in zip(*np.unique(eval_tts, return_counts=True))}
+    print(eval_tt_to_count)
+    num_unmasked = eval_tt_to_count.get(TargetType.CONTEXT, 0)
+    num_masked = eval_tt_to_count.get(TargetType.INFILL, 0)
     print('Mask rate (tokens): {:.4f}'.format(num_masked / (num_unmasked + num_masked)))
-    print('{} documents, {} examples'.format(train_num_docs, train_inputs.shape[0]))
-    print(train_inputs.shape, train_inputs.dtype, train_tts.shape, train_tts.dtype)
-    train_data = TensorDataset(
-        torch.from_numpy(train_inputs.astype(np.int64)),
-        torch.from_numpy(train_tts))
-    del train_inputs
-    del train_tts
+    print('{} documents, {} examples'.format(eval_num_docs, eval_inputs.shape[0]))
+    print(eval_inputs.shape, eval_inputs.dtype, eval_tts.shape, eval_tts.dtype)
+    eval_data = TensorDataset(
+        torch.from_numpy(eval_inputs.astype(np.int64)),
+        torch.from_numpy(eval_tts))
+    del eval_inputs
+    del eval_tts
 
-  # Load eval data
-  print('Loading eval data')
-  loaded_from_cache = False
-  if args.data_cache:
-    try:
-      eval_inputs = np.load(out_fn_to_fp('eval_inp.npy'))
-      eval_tts = np.load(out_fn_to_fp('eval_tts.npy'))
-      with open(out_fn_to_fp('eval_num_docs.pkl'), 'rb') as f:
-        eval_num_docs = pickle.load(f)
-      loaded_from_cache = True
-    except:
-      pass
-  if not loaded_from_cache:
-    eval_inputs, eval_tts, eval_num_docs = masked_dataset_to_inputs_and_tts(
-        'eval',
-        tokenizer,
-        start_infill_id,
-        end_infill_id,
-        mask_type_to_id,
-        args)
-    if args.data_cache:
-      np.save(out_fn_to_fp('eval_inp.npy'), eval_inputs)
-      np.save(out_fn_to_fp('eval_tts.npy'), eval_tts)
-      with open(out_fn_to_fp('eval_num_docs.pkl'), 'wb') as f:
-        pickle.dump(eval_num_docs, f)
-  eval_tt_to_count = {TargetType(k):v for k, v in zip(*np.unique(eval_tts, return_counts=True))}
-  print(eval_tt_to_count)
-  num_unmasked = eval_tt_to_count.get(TargetType.CONTEXT, 0)
-  num_masked = eval_tt_to_count.get(TargetType.INFILL, 0)
-  print('Mask rate (tokens): {:.4f}'.format(num_masked / (num_unmasked + num_masked)))
-  print('{} documents, {} examples'.format(eval_num_docs, eval_inputs.shape[0]))
-  print(eval_inputs.shape, eval_inputs.dtype, eval_tts.shape, eval_tts.dtype)
-  eval_data = TensorDataset(
-      torch.from_numpy(eval_inputs.astype(np.int64)),
-      torch.from_numpy(eval_tts))
-  del eval_inputs
-  del eval_tts
+def train(args):
+  trainer = Trainer(args)
+  trainer.init_device()
+  trainer.load_training_data()
+  trainer.load_eval_data()
+  
 
   # Calculate number of steps to train for (return if we're just pre-cacheing data)
   if args.train_num_epochs is not None:
@@ -637,7 +647,7 @@ def train(args):
         num_batches_complete += 1
 
 
-if __name__ == '__main__':
+def parse_args():
   from argparse import ArgumentParser
 
   parser = ArgumentParser()
@@ -735,5 +745,8 @@ if __name__ == '__main__':
   if args.seed is None:
     args.seed = random.randint(0, 1e6)
   print('Random seed {}'.format(args.seed))
-
+  return args
+  
+if __name__ == '__main__':
+  args = parse_args()
   train(args)
