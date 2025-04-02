@@ -651,7 +651,7 @@ def train(args):
   trainer.load_model()
   trainer.and_the_rest()
 
-def parse_args():
+def parse_args(in_args):
   from argparse import ArgumentParser
 
   parser = ArgumentParser()
@@ -738,7 +738,7 @@ def parse_args():
       eval_sequence_length=256,
       eval_skip_naive_incomplete=False)
   
-  args = parser.parse_args()
+  args = parser.parse_args(in_args)
 
   if args.wandb:
     wandb.init(
@@ -752,5 +752,6 @@ def parse_args():
   return args
   
 if __name__ == '__main__':
-  args = parse_args()
+  import sys
+  args = parse_args(sys.argv)
   train(args)
