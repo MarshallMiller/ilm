@@ -265,38 +265,39 @@ def tts_to_labels(inputs, tts, label_tts):
 class Trainer:
   def __init__(self, args):
     self.args = args
+    
     # Lambda for filenames
-    self.example_tag_to_fp = lambda tag: os.path.join(args.examples_dir, '{}.pkl'.format(tag))
-    self.out_fn_to_fp = lambda fn: os.path.join(args.train_dir, fn)
+    self.example_tag_to_fp = lambda tag: os.path.join(self.args.examples_dir, '{}.pkl'.format(tag))
+    self.out_fn_to_fp = lambda fn: os.path.join(self.args.train_dir, fn)
   
     # Create training dir
-    os.makedirs(args.train_dir, exist_ok=True)
-    resuming = os.path.exists(out_fn_to_fp('step.pkl'))
+    os.makedirs(self.args.train_dir, exist_ok=True)
+    self.resuming = os.path.exists(self.out_fn_to_fp('step.pkl'))
 
     # Create tokenizer
-    tokenizer = ilm.tokenize_util.Tokenizer[args.tokenizer_name.upper()]
-    if tokenizer == ilm.tokenize_util.Tokenizer.CUSTOM:
-      ilm.tokenize_util.set_custom_vocab_fp(args.tokenizer_custom_vocab_fp)
+    self.tokenizer = ilm.tokenize_util.Tokenizer[self.args.tokenizer_name.upper()]
+    if self.tokenizer == ilm.tokenize_util.Tokenizer.CUSTOM:
+      ilm.tokenize_util.set_custom_vocab_fp(self.args.tokenizer_custom_vocab_fp)
   
     # Update tokenizer
-    base_vocab_size = ilm.tokenize_util.vocab_size(tokenizer)
-    start_infill_id = base_vocab_size + 0
-    end_infill_id = base_vocab_size + 1
+    base_vocab_size = ilm.tokenize_util.vocab_size(self.tokenizer)
+    self.start_infill_id = base_vocab_size + 0
+    self.end_infill_id = base_vocab_size + 1
     additional_ids_to_tokens = {
-        start_infill_id: '<|startofinfill|>',
-        end_infill_id: '<|endofinfill|>'
+        self.start_infill_id: '<|startofinfill|>',
+        self.end_infill_id: '<|endofinfill|>'
     }
-    mask_cls = ilm.mask.util.mask_cls_str_to_type(args.mask_cls)
+    mask_cls = ilm.mask.util.mask_cls_str_to_type(self.args.mask_cls)
     mask_types = mask_cls.mask_types()
-    mask_type_to_id = {}
+    self.mask_type_to_id = {}
     for i, t in enumerate(mask_types):
       t_id = base_vocab_size + 2 + i
       t_tok = '<|infill_{}|>'.format(mask_cls.mask_type_serialize(t))
       additional_ids_to_tokens[t_id] = t_tok
-      mask_type_to_id[t] = t_id
+      self.mask_type_to_id[t] = t_id
     print(additional_ids_to_tokens)
-    vocab_size = ilm.tokenize_util.update_tokenizer(additional_ids_to_tokens, tokenizer)
-    with open(out_fn_to_fp('additional_ids_to_tokens.pkl'), 'wb') as f:
+    vocab_size = ilm.tokenize_util.update_tokenizer(additional_ids_to_tokens, self.tokenizer)
+    with open(self.out_fn_to_fp('additional_ids_to_tokens.pkl'), 'wb') as f:
       pickle.dump(additional_ids_to_tokens, f)
 
   def init_device(self):
@@ -318,35 +319,36 @@ class Trainer:
           train_inputs = np.load(self.out_fn_to_fp('train_inp.npy'))
           train_tts = np.load(self.out_fn_to_fp('train_tts.npy'))
           with open(self.out_fn_to_fp('train_num_docs.pkl'), 'rb') as f:
-            train_num_docs = pickle.load(f)
+            self.train_num_docs = pickle.load(f)
           loaded_from_cache = True
         except:
           pass
       if not loaded_from_cache:
-        train_inputs, train_tts, train_num_docs = masked_dataset_to_inputs_and_tts(
+        train_inputs, train_tts, self.train_num_docs = masked_dataset_to_inputs_and_tts(
             'train',
-            tokenizer,
-            start_infill_id,
-            end_infill_id,
-            mask_type_to_id,
-            args)
+            self.tokenizer,
+            self.start_infill_id,
+            self.end_infill_id,
+            self.mask_type_to_id,
+            self.args)
         if self.args.data_cache:
           np.save(self.out_fn_to_fp('train_inp.npy'), train_inputs)
           np.save(self.out_fn_to_fp('train_tts.npy'), train_tts)
           with open(self.out_fn_to_fp('train_num_docs.pkl'), 'wb') as f:
-            pickle.dump(train_num_docs, f)
+            pickle.dump(self.train_num_docs, f)
       train_tt_to_count = {TargetType(k):v for k, v in zip(*np.unique(train_tts, return_counts=True))}
       print(train_tt_to_count)
       num_unmasked = train_tt_to_count.get(TargetType.CONTEXT, 0)
       num_masked = train_tt_to_count.get(TargetType.INFILL, 0)
       print('Mask rate (tokens): {:.4f}'.format(num_masked / (num_unmasked + num_masked)))
-      print('{} documents, {} examples'.format(train_num_docs, train_inputs.shape[0]))
+      print('{} documents, {} examples'.format(self.train_num_docs, train_inputs.shape[0]))
       print(train_inputs.shape, train_inputs.dtype, train_tts.shape, train_tts.dtype)
       train_data = TensorDataset(
           torch.from_numpy(train_inputs.astype(np.int64)),
           torch.from_numpy(train_tts))
       del train_inputs
       del train_tts
+
   def load_eval_data(self):
     # Load eval data
     print('Loading eval data')
@@ -363,11 +365,11 @@ class Trainer:
     if not loaded_from_cache:
       eval_inputs, eval_tts, eval_num_docs = masked_dataset_to_inputs_and_tts(
           'eval',
-          tokenizer,
-          start_infill_id,
-          end_infill_id,
-          mask_type_to_id,
-          args)
+          self.tokenizer,
+          self.start_infill_id,
+          self.end_infill_id,
+          self.mask_type_to_id,
+          self.args)
       if self.args.data_cache:
         np.save(self.out_fn_to_fp('eval_inp.npy'), eval_inputs)
         np.save(self.out_fn_to_fp('eval_tts.npy'), eval_tts)
@@ -380,272 +382,274 @@ class Trainer:
     print('Mask rate (tokens): {:.4f}'.format(num_masked / (num_unmasked + num_masked)))
     print('{} documents, {} examples'.format(eval_num_docs, eval_inputs.shape[0]))
     print(eval_inputs.shape, eval_inputs.dtype, eval_tts.shape, eval_tts.dtype)
-    eval_data = TensorDataset(
+    self.eval_data = TensorDataset(
         torch.from_numpy(eval_inputs.astype(np.int64)),
         torch.from_numpy(eval_tts))
     del eval_inputs
     del eval_tts
+
+  def load_model(self):
+    # Calculate number of steps to train for (return if we're just pre-cacheing data)
+    if self.args.train_num_epochs is not None:
+      train_num_batches = int(float(self.train_num_docs * self.args.train_num_epochs) / self.args.train_batch_size)
+      if train_num_batches == 0:
+        return
+      print('Maximum number of training steps: {}'.format(train_num_batches / self.args.train_batch_accumulation))
+  
+    # Create data iterators
+    print('Creating datasets')
+    if not self.args.eval_only:
+      train_sampler = RandomSampler(train_data)
+      train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=self.args.train_batch_size, drop_last=True)
+    eval_sampler = SequentialSampler(eval_data)
+    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=self.args.eval_batch_size, drop_last=True)
+  
+    # Load model
+    print('Initializing model...')
+    set_random_seed(self.args.seed)
+    if self.args.model_name in ilm.constants.GPT2_MODEL_NAMES:
+      model_type = GPT2LMHeadModel
+      cfg_type = GPT2Config
+    if self.resuming:
+      print('from saved checkpoint (resuming)')
+      self.model = model_type.from_pretrained(self.args.train_dir)
+    else:
+      if self.args.train_from_scratch:
+        print('from scratch')
+        cfg = cfg_type.from_pretrained(self.args.model_name)
+        self.model = model_type(cfg)
+      else:
+        print('from pretrained checkpoint')
+        self.model = model_type.from_pretrained(self.args.model_name)
+    self.model.resize_token_embeddings(vocab_size)
+    self.model.to(self.device)
+    self.model.train()
+  
+  def and_the_rest(self):
+    # Reset random seed in case model init triggered RNG
+  
+    # Initialize optimizers
+    if not self.args.eval_only:
+      params = list(self.model.named_parameters())
+      no_decay = ['bias', 'ln']
+      optimizer_grouped_parameters = [
+        {
+          'params': [p for n, p in params if not any(nd in n for nd in no_decay)],
+          'weight_decay': self.args.train_weight_decay
+        },
+        {
+          'params': [p for n, p in params if any(nd in n for nd in no_decay)],
+          'weight_decay': 0.0
+        }
+      ]
+      optimizer = AdamW(
+          optimizer_grouped_parameters,
+          lr=self.args.train_learning_rate,
+          eps=self.args.train_adam_epsilon)
+      if self.resuming:
+        optimizer.load_state_dict(torch.load(self.out_fn_to_fp('optimizer.pt')))
+  
+    # Create global step
+    if self.resuming:
+      try:
+        with open(self.out_fn_to_fp('step.pkl'), 'rb') as f:
+          step = pickle.load(f)
+      except Exception as e:
+        if self.args.eval_only:
+          step = None
+        else:
+          raise e
+    else:
+      step = 0
+  
+    if self.args.eval_only:
+      print('Evaluating')
+      self.model.eval()
+  
+      eval_start = time.time()
+      eval_token_counts = defaultdict(int)
+      eval_token_loss_sums = defaultdict(float)
+      for i, eval_batch in enumerate(eval_dataloader):
+        with torch.no_grad():
+          eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
+          eval_logits, _ = self.model(eval_inputs)
+          eval_logits_relevant = eval_logits[:, :-1].contiguous().view(-1, eval_logits.shape[-1])
+  
+          for tag, tts in [
+              ('context', [TargetType.CONTEXT]),
+              ('infill', [TargetType.INFILL, TargetType.INFILL_SPECIAL]),
+              ('infill_textonly', [TargetType.INFILL])]:
+            eval_labels = tts_to_labels(eval_inputs, eval_tts, tts)
+            eval_labels_relevant = eval_labels[:, 1:]
+            eval_labels_relevant_count = (eval_labels_relevant != -1).long().sum().item()
+            eval_labels_loss = F.cross_entropy(
+                eval_logits_relevant,
+                eval_labels_relevant.contiguous().view(-1),
+                ignore_index=-1).item()
+            eval_token_counts[tag] += eval_labels_relevant_count
+            eval_token_loss_sums[tag] += eval_labels_loss * eval_labels_relevant_count
+  
+      eval_dict = {}
+      for tag, count in eval_token_counts.items():
+        loss = eval_token_loss_sums[tag]
+        if count > 0:
+          loss /= count
+        eval_dict['eval_{}_count'.format(tag)] = count
+        eval_dict['eval_{}_loss'.format(tag)] = loss
+        eval_dict['eval_{}_ppl'.format(tag)] = np.exp(loss)
+      eval_dict['eval_time'] = time.time() - eval_start
+  
+      print('-' * 80)
+      if step is not None:
+        print('(Step {}) Eval'.format(step))
+      for k, v in eval_dict.items():
+        print('{}: {}'.format(k, v))
+      if self.args.wandb:
+        wandb.log(eval_dict, step=step)
+  
+    else:
+      print('Training')
+      set_random_seed(self.args.seed)
+      best_eval_loss = None
+      num_save = -1
+      num_summary = -1
+      num_batches_complete = step * self.args.train_batch_accumulation
+      start = time.time()
+      while True:
+        if self.args.train_num_epochs is not None and num_batches_complete >= train_num_batches:
+          break
+  
+        for batch in train_dataloader:
+          if self.args.train_num_epochs is not None and num_batches_complete >= train_num_batches:
+            break
+  
+          elapsed = time.time() - start
+  
+          # Evaluate
+          if int(elapsed / self.args.train_eval_secs) > num_save:
+            num_save = int(elapsed / self.args.train_eval_secs)
+  
+            self.model.eval()
+  
+            eval_start = time.time()
+            eval_token_counts = defaultdict(int)
+            eval_token_loss_sums = defaultdict(float)
+            for i, eval_batch in enumerate(eval_dataloader):
+              with torch.no_grad():
+                eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
+                eval_logits, _ = self.model(eval_inputs)
+                eval_logits_relevant = eval_logits[:, :-1].contiguous().view(-1, eval_logits.shape[-1])
+  
+                for tag, tts in [
+                    ('context', [TargetType.CONTEXT]),
+                    ('infill', [TargetType.INFILL, TargetType.INFILL_SPECIAL]),
+                    ('infill_textonly', [TargetType.INFILL])]:
+                  eval_labels = tts_to_labels(eval_inputs, eval_tts, tts)
+                  eval_labels_relevant = eval_labels[:, 1:]
+                  eval_labels_relevant_count = (eval_labels_relevant != -1).long().sum().item()
+                  eval_labels_loss = F.cross_entropy(
+                      eval_logits_relevant,
+                      eval_labels_relevant.contiguous().view(-1),
+                      ignore_index=-1).item()
+                  eval_token_counts[tag] += eval_labels_relevant_count
+                  eval_token_loss_sums[tag] += eval_labels_loss * eval_labels_relevant_count
+  
+            eval_dict = {}
+            for tag, count in eval_token_counts.items():
+              loss = eval_token_loss_sums[tag]
+              if count > 0:
+                loss /= count
+              eval_dict['eval_{}_count'.format(tag)] = count
+              eval_dict['eval_{}_loss'.format(tag)] = loss
+            eval_dict['eval_time'] = time.time() - eval_start
+  
+            print('-' * 80)
+            print('(Step {}) Eval'.format(step))
+            for k, v in eval_dict.items():
+              print('{}: {}'.format(k, v))
+            if self.args.wandb:
+              wandb.log(eval_dict, step=step)
+  
+            if best_eval_loss is None or eval_dict['eval_infill_loss'] < best_eval_loss:
+              print('Saving')
+              model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+              model_to_save.config.to_json_file(self.out_fn_to_fp(CONFIG_NAME))
+              torch.save(model_to_save.state_dict(), self.out_fn_to_fp(WEIGHTS_NAME))
+              torch.save(optimizer.state_dict(), self.out_fn_to_fp('optimizer.pt'))
+              with open(self.out_fn_to_fp('step.pkl'), 'wb') as f:
+                pickle.dump(step, f)
+              best_eval_loss = eval_dict['eval_infill_loss']
+  
+            self.model.train()
+  
+          # Train
+          inputs, tts = tuple(t.to(self.device) for t in batch)
+          # TODO: Option to train on CONTEXT_SPECIAL?
+          labels_context = tts_to_labels(inputs, tts, [TargetType.CONTEXT])
+          # TODO: Option to skip training on INFILL_REDUNDANT?
+          # NOTE: This would give Task.NAIVE/Task.LM less supervision overall but put them more in line with the supervision that Task.ILM and Task.NO_CONTEXT_ILM receive
+          labels_infill = tts_to_labels(inputs, tts, [TargetType.INFILL, TargetType.INFILL_SPECIAL, TargetType.INFILL_REDUNDANT])
+          logits, _ = self.model(inputs)
+          logits_relevant = logits[:, :-1].contiguous().view(-1, logits.shape[-1])
+          loss_context = F.cross_entropy(
+              logits_relevant,
+              labels_context[:, 1:].contiguous().view(-1),
+              ignore_index=-1)
+          loss_infill = F.cross_entropy(
+              logits_relevant,
+              labels_infill[:, 1:].contiguous().view(-1),
+              ignore_index=-1)
+  
+          loss_context_item = loss_context.item()
+          loss_infill_item = loss_infill.item()
+  
+          loss = loss_infill
+          if self.args.train_context:
+            loss += loss_context
+  
+          if self.args.train_batch_accumulation != 1:
+            loss /= float(self.args.train_batch_accumulation)
+          loss.backward()
+  
+          # Summarize
+          if int(elapsed / self.args.train_summary_secs) > num_summary:
+            num_summary = int(elapsed / self.args.train_summary_secs)
+  
+            print('-' * 80)
+            print('(Step {}) Summary'.format(step))
+            print(loss_context_item)
+            print(loss_infill_item)
+            with torch.no_grad():
+              for t in inputs, labels_context, labels_infill:
+                t0 = list(t[0].cpu().numpy())
+                print('-' * 40)
+                print(t0)
+              for t in inputs, labels_context, labels_infill:
+                t0 = list(t[0].cpu().numpy())
+                print('-' * 40)
+                print(ilm.tokenize_util.decode([0 if t == -1 else t for t in t0], self.tokenizer))
+  
+            if self.args.wandb:
+              wandb.log({
+                'loss_context': loss_context_item,
+                'loss_infill': loss_infill_item,
+              }, step=step)
+  
+          if ((num_batches_complete + 1) % self.args.train_batch_accumulation) == 0:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.train_max_grad_norm)
+            optimizer.step()
+            optimizer.zero_grad()
+            step += 1
+  
+          num_batches_complete += 1
 
 def train(args):
   trainer = Trainer(args)
   trainer.init_device()
   trainer.load_training_data()
   trainer.load_eval_data()
-  
-
-  # Calculate number of steps to train for (return if we're just pre-cacheing data)
-  if args.train_num_epochs is not None:
-    train_num_batches = int(float(train_num_docs * args.train_num_epochs) / args.train_batch_size)
-    if train_num_batches == 0:
-      return
-    print('Maximum number of training steps: {}'.format(train_num_batches / args.train_batch_accumulation))
-
-  # Create data iterators
-  print('Creating datasets')
-  if not args.eval_only:
-    train_sampler = RandomSampler(train_data)
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size, drop_last=True)
-  eval_sampler = SequentialSampler(eval_data)
-  eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.eval_batch_size, drop_last=True)
-
-  # Load model
-  print('Initializing model...')
-  set_random_seed(args.seed)
-  if args.model_name in ilm.constants.GPT2_MODEL_NAMES:
-    model_type = GPT2LMHeadModel
-    cfg_type = GPT2Config
-  if resuming:
-    print('from saved checkpoint (resuming)')
-    model = model_type.from_pretrained(args.train_dir)
-  else:
-    if args.train_from_scratch:
-      print('from scratch')
-      cfg = cfg_type.from_pretrained(args.model_name)
-      model = model_type(cfg)
-    else:
-      print('from pretrained checkpoint')
-      model = model_type.from_pretrained(args.model_name)
-  model.resize_token_embeddings(vocab_size)
-  model.to(device)
-  model.train()
-
-  # Reset random seed in case model init triggered RNG
-
-  # Initialize optimizers
-  if not args.eval_only:
-    params = list(model.named_parameters())
-    no_decay = ['bias', 'ln']
-    optimizer_grouped_parameters = [
-      {
-        'params': [p for n, p in params if not any(nd in n for nd in no_decay)],
-        'weight_decay': args.train_weight_decay
-      },
-      {
-        'params': [p for n, p in params if any(nd in n for nd in no_decay)],
-        'weight_decay': 0.0
-      }
-    ]
-    optimizer = AdamW(
-        optimizer_grouped_parameters,
-        lr=args.train_learning_rate,
-        eps=args.train_adam_epsilon)
-    if resuming:
-      optimizer.load_state_dict(torch.load(out_fn_to_fp('optimizer.pt')))
-
-  # Create global step
-  if resuming:
-    try:
-      with open(out_fn_to_fp('step.pkl'), 'rb') as f:
-        step = pickle.load(f)
-    except Exception as e:
-      if args.eval_only:
-        step = None
-      else:
-        raise e
-  else:
-    step = 0
-
-  if args.eval_only:
-    print('Evaluating')
-    model.eval()
-
-    eval_start = time.time()
-    eval_token_counts = defaultdict(int)
-    eval_token_loss_sums = defaultdict(float)
-    for i, eval_batch in enumerate(eval_dataloader):
-      with torch.no_grad():
-        eval_inputs, eval_tts = tuple(t.to(device) for t in eval_batch)
-        eval_logits, _ = model(eval_inputs)
-        eval_logits_relevant = eval_logits[:, :-1].contiguous().view(-1, eval_logits.shape[-1])
-
-        for tag, tts in [
-            ('context', [TargetType.CONTEXT]),
-            ('infill', [TargetType.INFILL, TargetType.INFILL_SPECIAL]),
-            ('infill_textonly', [TargetType.INFILL])]:
-          eval_labels = tts_to_labels(eval_inputs, eval_tts, tts)
-          eval_labels_relevant = eval_labels[:, 1:]
-          eval_labels_relevant_count = (eval_labels_relevant != -1).long().sum().item()
-          eval_labels_loss = F.cross_entropy(
-              eval_logits_relevant,
-              eval_labels_relevant.contiguous().view(-1),
-              ignore_index=-1).item()
-          eval_token_counts[tag] += eval_labels_relevant_count
-          eval_token_loss_sums[tag] += eval_labels_loss * eval_labels_relevant_count
-
-    eval_dict = {}
-    for tag, count in eval_token_counts.items():
-      loss = eval_token_loss_sums[tag]
-      if count > 0:
-        loss /= count
-      eval_dict['eval_{}_count'.format(tag)] = count
-      eval_dict['eval_{}_loss'.format(tag)] = loss
-      eval_dict['eval_{}_ppl'.format(tag)] = np.exp(loss)
-    eval_dict['eval_time'] = time.time() - eval_start
-
-    print('-' * 80)
-    if step is not None:
-      print('(Step {}) Eval'.format(step))
-    for k, v in eval_dict.items():
-      print('{}: {}'.format(k, v))
-    if args.wandb:
-      wandb.log(eval_dict, step=step)
-
-  else:
-    print('Training')
-    set_random_seed(args.seed)
-    best_eval_loss = None
-    num_save = -1
-    num_summary = -1
-    num_batches_complete = step * args.train_batch_accumulation
-    start = time.time()
-    while True:
-      if args.train_num_epochs is not None and num_batches_complete >= train_num_batches:
-        break
-
-      for batch in train_dataloader:
-        if args.train_num_epochs is not None and num_batches_complete >= train_num_batches:
-          break
-
-        elapsed = time.time() - start
-
-        # Evaluate
-        if int(elapsed / args.train_eval_secs) > num_save:
-          num_save = int(elapsed / args.train_eval_secs)
-
-          model.eval()
-
-          eval_start = time.time()
-          eval_token_counts = defaultdict(int)
-          eval_token_loss_sums = defaultdict(float)
-          for i, eval_batch in enumerate(eval_dataloader):
-            with torch.no_grad():
-              eval_inputs, eval_tts = tuple(t.to(device) for t in eval_batch)
-              eval_logits, _ = model(eval_inputs)
-              eval_logits_relevant = eval_logits[:, :-1].contiguous().view(-1, eval_logits.shape[-1])
-
-              for tag, tts in [
-                  ('context', [TargetType.CONTEXT]),
-                  ('infill', [TargetType.INFILL, TargetType.INFILL_SPECIAL]),
-                  ('infill_textonly', [TargetType.INFILL])]:
-                eval_labels = tts_to_labels(eval_inputs, eval_tts, tts)
-                eval_labels_relevant = eval_labels[:, 1:]
-                eval_labels_relevant_count = (eval_labels_relevant != -1).long().sum().item()
-                eval_labels_loss = F.cross_entropy(
-                    eval_logits_relevant,
-                    eval_labels_relevant.contiguous().view(-1),
-                    ignore_index=-1).item()
-                eval_token_counts[tag] += eval_labels_relevant_count
-                eval_token_loss_sums[tag] += eval_labels_loss * eval_labels_relevant_count
-
-          eval_dict = {}
-          for tag, count in eval_token_counts.items():
-            loss = eval_token_loss_sums[tag]
-            if count > 0:
-              loss /= count
-            eval_dict['eval_{}_count'.format(tag)] = count
-            eval_dict['eval_{}_loss'.format(tag)] = loss
-          eval_dict['eval_time'] = time.time() - eval_start
-
-          print('-' * 80)
-          print('(Step {}) Eval'.format(step))
-          for k, v in eval_dict.items():
-            print('{}: {}'.format(k, v))
-          if args.wandb:
-            wandb.log(eval_dict, step=step)
-
-          if best_eval_loss is None or eval_dict['eval_infill_loss'] < best_eval_loss:
-            print('Saving')
-            model_to_save = model.module if hasattr(model, 'module') else model
-            model_to_save.config.to_json_file(out_fn_to_fp(CONFIG_NAME))
-            torch.save(model_to_save.state_dict(), out_fn_to_fp(WEIGHTS_NAME))
-            torch.save(optimizer.state_dict(), out_fn_to_fp('optimizer.pt'))
-            with open(out_fn_to_fp('step.pkl'), 'wb') as f:
-              pickle.dump(step, f)
-            best_eval_loss = eval_dict['eval_infill_loss']
-
-          model.train()
-
-        # Train
-        inputs, tts = tuple(t.to(device) for t in batch)
-        # TODO: Option to train on CONTEXT_SPECIAL?
-        labels_context = tts_to_labels(inputs, tts, [TargetType.CONTEXT])
-        # TODO: Option to skip training on INFILL_REDUNDANT?
-        # NOTE: This would give Task.NAIVE/Task.LM less supervision overall but put them more in line with the supervision that Task.ILM and Task.NO_CONTEXT_ILM receive
-        labels_infill = tts_to_labels(inputs, tts, [TargetType.INFILL, TargetType.INFILL_SPECIAL, TargetType.INFILL_REDUNDANT])
-        logits, _ = model(inputs)
-        logits_relevant = logits[:, :-1].contiguous().view(-1, logits.shape[-1])
-        loss_context = F.cross_entropy(
-            logits_relevant,
-            labels_context[:, 1:].contiguous().view(-1),
-            ignore_index=-1)
-        loss_infill = F.cross_entropy(
-            logits_relevant,
-            labels_infill[:, 1:].contiguous().view(-1),
-            ignore_index=-1)
-
-        loss_context_item = loss_context.item()
-        loss_infill_item = loss_infill.item()
-
-        loss = loss_infill
-        if args.train_context:
-          loss += loss_context
-
-        if args.train_batch_accumulation != 1:
-          loss /= float(args.train_batch_accumulation)
-        loss.backward()
-
-        # Summarize
-        if int(elapsed / args.train_summary_secs) > num_summary:
-          num_summary = int(elapsed / args.train_summary_secs)
-
-          print('-' * 80)
-          print('(Step {}) Summary'.format(step))
-          print(loss_context_item)
-          print(loss_infill_item)
-          with torch.no_grad():
-            for t in inputs, labels_context, labels_infill:
-              t0 = list(t[0].cpu().numpy())
-              print('-' * 40)
-              print(t0)
-            for t in inputs, labels_context, labels_infill:
-              t0 = list(t[0].cpu().numpy())
-              print('-' * 40)
-              print(ilm.tokenize_util.decode([0 if t == -1 else t for t in t0], tokenizer))
-
-          if args.wandb:
-            wandb.log({
-              'loss_context': loss_context_item,
-              'loss_infill': loss_infill_item,
-            }, step=step)
-
-        if ((num_batches_complete + 1) % args.train_batch_accumulation) == 0:
-          torch.nn.utils.clip_grad_norm_(model.parameters(), args.train_max_grad_norm)
-          optimizer.step()
-          optimizer.zero_grad()
-          step += 1
-
-        num_batches_complete += 1
-
+  trainer.load_model()
+  trainer.and_the_rest()
 
 def parse_args():
   from argparse import ArgumentParser
