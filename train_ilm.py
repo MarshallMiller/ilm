@@ -263,7 +263,7 @@ def tts_to_labels(inputs, tts, label_tts):
       torch.full_like(inputs, -1))
 
 class Trainer:
-  def __init__(self, args):
+  def init(self, args):
     self.args = args
     
     # Lambda for filenames
@@ -644,7 +644,8 @@ class Trainer:
           num_batches_complete += 1
 
 def train(args):
-  trainer = Trainer(args)
+  trainer = Trainer()
+  trainer.init(args)
   trainer.init_device()
   trainer.load_training_data()
   trainer.load_eval_data()
