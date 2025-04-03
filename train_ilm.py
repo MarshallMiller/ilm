@@ -538,6 +538,8 @@ class Trainer:
               with torch.no_grad():
                 eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
                 eval_logits, _ = self.model(eval_inputs)
+                print("eval_logits type: %s" % (eval_logits.__class__,))
+                print("dir(eval_logits): %s" % (dir(eval_logits),))
                 eval_logits_no_last_col = eval_logits[:, :-1]
                 eval_logits_contig = eval_logits_no_last_col.contiguous()
                 eval_logits_shape = eval_logits.shape[-1]
