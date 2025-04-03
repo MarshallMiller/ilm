@@ -535,9 +535,12 @@ class Trainer:
             eval_token_counts = defaultdict(int)
             eval_token_loss_sums = defaultdict(float)
             for i, eval_batch in enumerate(self.eval_dataloader):
+              print("i: %s, eval_batch: %s" % (i, eval_batch))
               with torch.no_grad():
                 eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
+                print("eval_inputs: %s, eval_tts: %s" % (eval_inputs, eval_tts))
                 eval_logits, _ = self.model(eval_inputs)
+                print("eval_logits: %s" % (eval_logits,))
                 print("eval_logits type: %s" % (eval_logits.__class__,))
                 print("dir(eval_logits): %s" % (dir(eval_logits),))
                 eval_logits_no_last_col = eval_logits[:, :-1]
