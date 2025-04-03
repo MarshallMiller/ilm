@@ -343,7 +343,7 @@ class Trainer:
       print('Mask rate (tokens): {:.4f}'.format(num_masked / (num_unmasked + num_masked)))
       print('{} documents, {} examples'.format(self.train_num_docs, train_inputs.shape[0]))
       print(train_inputs.shape, train_inputs.dtype, train_tts.shape, train_tts.dtype)
-      train_data = TensorDataset(
+      self.train_data = TensorDataset(
           torch.from_numpy(train_inputs.astype(np.int64)),
           torch.from_numpy(train_tts))
       del train_inputs
@@ -399,10 +399,10 @@ class Trainer:
     # Create data iterators
     print('Creating datasets')
     if not self.args.eval_only:
-      train_sampler = RandomSampler(train_data)
-      train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=self.args.train_batch_size, drop_last=True)
+      train_sampler = RandomSampler(self.train_data)
+      self.train_dataloader = DataLoader(self.train_data, sampler=train_sampler, batch_size=self.args.train_batch_size, drop_last=True)
     eval_sampler = SequentialSampler(eval_data)
-    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=self.args.eval_batch_size, drop_last=True)
+    self.eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=self.args.eval_batch_size, drop_last=True)
   
     # Load model
     print('Initializing model...')
@@ -469,7 +469,7 @@ class Trainer:
       eval_start = time.time()
       eval_token_counts = defaultdict(int)
       eval_token_loss_sums = defaultdict(float)
-      for i, eval_batch in enumerate(eval_dataloader):
+      for i, eval_batch in enumerate(self.eval_dataloader):
         with torch.no_grad():
           eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
           eval_logits, _ = self.model(eval_inputs)
@@ -519,7 +519,7 @@ class Trainer:
         if self.args.train_num_epochs is not None and num_batches_complete >= train_num_batches:
           break
   
-        for batch in train_dataloader:
+        for batch in self.train_dataloader:
           if self.args.train_num_epochs is not None and num_batches_complete >= train_num_batches:
             break
   
@@ -534,7 +534,7 @@ class Trainer:
             eval_start = time.time()
             eval_token_counts = defaultdict(int)
             eval_token_loss_sums = defaultdict(float)
-            for i, eval_batch in enumerate(eval_dataloader):
+            for i, eval_batch in enumerate(self.eval_dataloader):
               with torch.no_grad():
                 eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
                 eval_logits, _ = self.model(eval_inputs)
