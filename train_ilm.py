@@ -535,15 +535,15 @@ class Trainer:
             eval_token_counts = defaultdict(int)
             eval_token_loss_sums = defaultdict(float)
             for i, eval_batch in enumerate(self.eval_dataloader):
-              print("i: %s, eval_batch: %s" % (i, eval_batch))
+              #print("i: %s, eval_batch: %s" % (i, eval_batch))
               with torch.no_grad():
                 eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
-                print("eval_inputs: %s, eval_tts: %s" % (eval_inputs, eval_tts))
+                #print("eval_inputs: %s, eval_tts: %s" % (eval_inputs, eval_tts))
                 eval_logits, something_else = self.model(eval_inputs).values()
-                print("eval_logits: %s" % (eval_logits,))
-                print("something_else: %s" % (something_else,))
-                print("eval_logits type: %s" % (eval_logits.__class__,))
-                print("dir(eval_logits): %s" % (dir(eval_logits),))
+                #print("eval_logits: %s" % (eval_logits,))
+                #print("something_else: %s" % (something_else,))
+                #print("eval_logits type: %s" % (eval_logits.__class__,))
+                #print("dir(eval_logits): %s" % (dir(eval_logits),))
                 eval_logits_no_last_col = eval_logits[:, :-1]
                 eval_logits_contig = eval_logits_no_last_col.contiguous()
                 eval_logits_shape = eval_logits.shape[-1]
