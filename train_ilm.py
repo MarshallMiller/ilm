@@ -296,7 +296,7 @@ class Trainer:
       additional_ids_to_tokens[t_id] = t_tok
       self.mask_type_to_id[t] = t_id
     print(additional_ids_to_tokens)
-    vocab_size = ilm.tokenize_util.update_tokenizer(additional_ids_to_tokens, self.tokenizer)
+    self.vocab_size = ilm.tokenize_util.update_tokenizer(additional_ids_to_tokens, self.tokenizer)
     with open(self.out_fn_to_fp('additional_ids_to_tokens.pkl'), 'wb') as f:
       pickle.dump(additional_ids_to_tokens, f)
 
@@ -421,7 +421,7 @@ class Trainer:
       else:
         print('from pretrained checkpoint')
         self.model = model_type.from_pretrained(self.args.model_name)
-    self.model.resize_token_embeddings(vocab_size)
+    self.model.resize_token_embeddings(self.vocab_size)
     self.model.to(self.device)
     self.model.train()
   
