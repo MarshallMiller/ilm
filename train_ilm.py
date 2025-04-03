@@ -401,8 +401,8 @@ class Trainer:
     if not self.args.eval_only:
       train_sampler = RandomSampler(self.train_data)
       self.train_dataloader = DataLoader(self.train_data, sampler=train_sampler, batch_size=self.args.train_batch_size, drop_last=True)
-    eval_sampler = SequentialSampler(eval_data)
-    self.eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=self.args.eval_batch_size, drop_last=True)
+    eval_sampler = SequentialSampler(self.eval_data)
+    self.eval_dataloader = DataLoader(self.eval_data, sampler=eval_sampler, batch_size=self.args.eval_batch_size, drop_last=True)
   
     # Load model
     print('Initializing model...')
