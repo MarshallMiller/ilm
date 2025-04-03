@@ -538,7 +538,10 @@ class Trainer:
               with torch.no_grad():
                 eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
                 eval_logits, _ = self.model(eval_inputs)
-                eval_logits_relevant = eval_logits[:, :-1].contiguous().view(-1, eval_logits.shape[-1])
+                eval_logits_no_last_col = eval_logits[:, :-1]
+                eval_logits_contig = eval_logits_no_last_col.contiguous()
+                eval_logits_shape = eval_logits.shape[-1]
+                eval_logits_relevant = eval_logits_contig.view(-1, eval_logits_shape)
   
                 for tag, tts in [
                     ('context', [TargetType.CONTEXT]),
