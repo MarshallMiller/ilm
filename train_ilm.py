@@ -539,8 +539,9 @@ class Trainer:
               with torch.no_grad():
                 eval_inputs, eval_tts = tuple(t.to(self.device) for t in eval_batch)
                 print("eval_inputs: %s, eval_tts: %s" % (eval_inputs, eval_tts))
-                eval_logits, _ = self.model(eval_inputs)
+                eval_logits, something_else = self.model(eval_inputs)
                 print("eval_logits: %s" % (eval_logits,))
+                print("something_else: %s" % (something_else,))
                 print("eval_logits type: %s" % (eval_logits.__class__,))
                 print("dir(eval_logits): %s" % (dir(eval_logits),))
                 eval_logits_no_last_col = eval_logits[:, :-1]
