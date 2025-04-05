@@ -5,9 +5,9 @@ import os
 import regex as re
 import warnings
 
-from .constants import GPT2_TOKENIZER_LEN
-from .paths import OFFICIAL_GPT2_ENCODER_DIR
-from .official_gpt2_encoder.encoder import Encoder as OfficialEncoder
+from ilm.constants import GPT2_TOKENIZER_LEN
+from ilm.paths import OFFICIAL_GPT2_ENCODER_DIR
+from ilm.official_gpt2_encoder.encoder import Encoder as OfficialEncoder
 
 class Tokenizer(Enum):
   CUSTOM = 0
