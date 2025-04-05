@@ -391,10 +391,10 @@ class Trainer:
   def load_model(self):
     # Calculate number of steps to train for (return if we're just pre-cacheing data)
     if self.args.train_num_epochs is not None:
-      train_num_batches = int(float(self.train_num_docs * self.args.train_num_epochs) / self.args.train_batch_size)
-      if train_num_batches == 0:
+      self.train_num_batches = int(float(self.train_num_docs * self.args.train_num_epochs) / self.args.train_batch_size)
+      if self.train_num_batches == 0:
         return
-      print('Maximum number of training steps: {}'.format(train_num_batches / self.args.train_batch_accumulation))
+      print('Maximum number of training steps: {}'.format(self.train_num_batches / self.args.train_batch_accumulation))
   
     # Create data iterators
     print('Creating datasets')
@@ -516,11 +516,11 @@ class Trainer:
       num_batches_complete = step * self.args.train_batch_accumulation
       start = time.time()
       while True:
-        if self.args.train_num_epochs is not None and num_batches_complete >= train_num_batches:
+        if self.args.train_num_epochs is not None and num_batches_complete >= self.train_num_batches:
           break
   
         for batch in self.train_dataloader:
-          if self.args.train_num_epochs is not None and num_batches_complete >= train_num_batches:
+          if self.args.train_num_epochs is not None and num_batches_complete >= self.train_num_batches:
             break
   
           elapsed = time.time() - start
